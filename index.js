@@ -138,7 +138,7 @@ client.on('messageCreate', async message => {
         const filled = next ? Math.floor(((exp - threshold) / (next - threshold)) * 10) : 10;
         const bar = '🟨'.repeat(filled) + '⬛'.repeat(10 - filled);
 
-        const expNeeded = next ? next - exp : 0;
+        const texpNeeded = next ? next - exp : 0;
         const footerText = next ? `You still need ${expNeeded} EXP to reach level ${level + 1}!` : 'You are at max level!';
 
         const embed = new EmbedBuilder()
@@ -314,7 +314,7 @@ if (awaitingName.has(message.author.id)) {
             )
             .setColor('#ff9a03')
             .setThumbnail('https://w.wallhaven.cc/full/g8/wallhaven-g8xjzd.jpg')
-            .setFooter({ text: 'He has written your name, He has written your end..'});
+            .setFooter({ text: 'She has written your name, She has written your end..'});
 
         message.channel.send({ embeds: [embed] });
     }

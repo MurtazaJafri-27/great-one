@@ -36,7 +36,12 @@ const quests = [
 
 const userQuests = {};
 const userExp = {};
+const userDesc = {};
+const userColor = {};
+const userQuestHistory = {};
 const awaitingName = new Set();
+const awaitingDesc = new Set();
+const awaitingColor = new Set();
 
 function getDailyQuests(userId) {
     const today = new Date().toDateString();
@@ -84,8 +89,7 @@ client.on('clientReady', () => {
     client.user.setPresence({ status: 'online' });
 });
 
-const commands = ['god is good', 'i seek guidance', 'i seek quests', 'i seek my level', 'i seek info'];
-
+const commands = ['god is good', 'i seek guidance', 'i seek quests', 'i seek my level', 'i seek info', 'I wish to be reborn', 'i seek my description', 'set color'];
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
@@ -101,9 +105,9 @@ client.on('messageCreate', async message => {
             .setTitle('The Great One Speaks.')
             .setDescription('*"You have sought guidance. Here is what has been written."*')
             .setFields(
-                { name: '⏫ LEVELs', value: '**I seek my level** : shows your current level.', inline: false },
-                { name: '🗺️ QUESTs', value: '**I seek quests** : shows your daily quests.', inline: false },
-                { name: '🎲 Misc.', value : '**I seek info** : shows you information about anything from characters to places, to events.', inline : false},
+                { name: '⏫ LEVELs', value: `**I seek my level** : shows your current level.\n**I wish to be reborn** : shows/sets your profile.\n**set color [hex-code]** : Sets your profile embed color.`, inline: false },
+                { name: '🗺️ QUESTs', value: '**I seek quests** : shows your daily quests.\n**I seek my history** : Shows how many total quests you have completed.', inline: false },
+                { name: '🎲 Misc.', value: '**I seek info** : shows you information about anything from characters to places, to events.', inline: false },
             )
             .setColor('#FFFFFF')
             .setTimestamp();
@@ -138,7 +142,7 @@ client.on('messageCreate', async message => {
         const filled = next ? Math.floor(((exp - threshold) / (next - threshold)) * 10) : 10;
         const bar = '🟨'.repeat(filled) + '⬛'.repeat(10 - filled);
 
-        const texpNeeded = next ? next - exp : 0;
+        const expNeeded = next ? next - exp : 0;
         const footerText = next ? `You still need ${expNeeded} EXP to reach level ${level + 1}!` : 'You are at max level!';
 
         const embed = new EmbedBuilder()
@@ -151,213 +155,264 @@ client.on('messageCreate', async message => {
         message.channel.send({ embeds: [embed] });
     }
 
+    // SET DESCRIPTION
+    if (message.content.toLowerCase() === 'i seek my description') {
+        awaitingDesc.add(message.author.id);
+        message.reply('Type your description.');
+        return;
+    }
+
+    if (awaitingDesc.has(message.author.id)) {
+        awaitingDesc.delete(message.author.id);
+        userDesc[message.author.id] = message.content;
+        message.reply('Your description has been set!');
+        return;
+    }
+
+    // SET COLOR
+    if (message.content.toLowerCase().startsWith('set color')) {
+        const hex = message.content.split(' ')[2];
+        if (!hex || !hex.startsWith('#') || hex.length !== 7) {
+            message.reply('Please provide a valid hex color like `#FF0000`');
+            return;
+        }
+        userColor[message.author.id] = hex;
+        message.reply(`Your profile color has been set to ${hex}!`);
+        return;
+    }
+
+    // PROFILE
+    if (message.content.toLowerCase() === 'i wish to be reborn') {
+        const exp = userExp[message.author.id] || 0;
+        const { level } = getLevel(exp);
+        const color = userColor[message.author.id] || '#FFFFFF';
+        const desc = userDesc[message.author.id] || 'No description set. Use **I seek my description** to set one.';
+
+        const embed = new EmbedBuilder()
+            .setTitle(`***Profile :***`)
+            .setThumbnail(message.author.displayAvatarURL())
+            .setColor(color)
+            .setDescription(desc)
+            .addFields(
+                { name: 'Level', value: `${level}`, inline: true },
+                { name: 'EXP', value: `${exp}`, inline: true },
+            )
+            .setTimestamp();
+
+        message.channel.send({ embeds: [embed] });
+        return;
+    }
+
+    if(message.content.toLowerCase() === 'i seek my history'){
+        message.reply(`You've completed a total of **${userQuestHistory[message.author.id] || 0}** quests!`);
+    }
     // ANSWER CHECKING
-    if (!commands.includes(message.content.toLowerCase())){
-    const userActiveQuests = userQuests[message.author.id];
-    if (userActiveQuests) {
-        const quest = userActiveQuests.quests.find(q => {
-            if (q.completed) return false;
-            const userMessage = message.content.toLowerCase();
+    if (!commands.includes(message.content.toLowerCase()) && !message.content.toLowerCase().startsWith('set color')) {
+        const userActiveQuests = userQuests[message.author.id];
+        if (userActiveQuests) {
+            const quest = userActiveQuests.quests.find(q => {
+                if (q.completed) return false;
+                const userMessage = message.content.toLowerCase();
 
-            if (Array.isArray(q.answer)) {
-                return q.answer.some(a => userMessage.includes(a));
+                if (Array.isArray(q.answer)) {
+                    return q.answer.some(a => userMessage.includes(a));
+                }
+
+                const answerWords = q.answer.toLowerCase().split(' ');
+                return answerWords.every(word => userMessage.includes(word));
+            });
+
+            if (quest) {
+                quest.completed = true;
+                if (!userExp[message.author.id]) userExp[message.author.id] = 0;
+                userExp[message.author.id] += quest.reward;
+                if (!userQuestHistory[message.author.id]) userQuestHistory[message.author.id] = 0;
+                userQuestHistory[message.author.id] += 1;
+                message.reply(`✅ Quest complete! You earned **${quest.reward} XP**.`);
+
+                const allDone = userActiveQuests.quests.every(q => q.completed);
+                if (allDone) {
+                    message.channel.send(`🎉 ${message.author.username} has completed all daily quests!`);
+                }
             }
-
-            const answerWords = q.answer.toLowerCase().split(' ');
-            return answerWords.every(word => userMessage.includes(word));
-        });
-
-        if (quest) {
-            quest.completed = true;
-            if (!userExp[message.author.id]) userExp[message.author.id] = 0;
-            userExp[message.author.id] += quest.reward;
-            message.reply(`✅ Quest complete! You earned **${quest.reward} XP**.`);
-
-            const allDone = userActiveQuests.quests.every(q => q.completed);
-            if (allDone) {
-                message.channel.send(`🎉 ${message.author.username} has completed all daily quests!`);
+            if(!quest){
+                message.reply('Wrong answer, your EXP was decreased by 5.');
+                if(userExp[message.author.id] != 0){
+                userExp[message.author.id] -= 10;}
             }
         }
     }
-}
-    if(message.content.length >= 7){
+
+    if (message.content.length >= 7) {
         if (!userExp[message.author.id]) userExp[message.author.id] = 0;
         userExp[message.author.id] += 5;
     }
 
-if (message.content.toLowerCase() === 'i seek info') {
-    awaitingName.add(message.author.id);
-    message.reply('Whose information do you seek Primordian? Bestow me with their name.');
-    const embed = new EmbedBuilder()
-    .setTitle(' 📋***Information Board***💡 ')
-    .setDescription('Look at detailed biographies of characters, break downs of story events and more!\n')
-    .addFields({
-        name : 'Characters\n', value : 
-        `The Great One
-        Keen Keeper
-        Gremlin Seer
-        Morvath
-        Nyxar
-        Seraphine
-        Solmara`
-    })
-    .addFields({ name : 'Events\n', value : `
-        The Great Expulsion`})
-    .setColor('#FFFFFF')
-    .setTimestamp()
-
-    message.channel.send({ embeds : [embed]});
-    return;
-}
-
-if (awaitingName.has(message.author.id)) {
-    awaitingName.delete(message.author.id);
-    if (message.content.toLowerCase() === 'morvath') {
+    // INFO
+    if (message.content.toLowerCase() === 'i seek info') {
+        awaitingName.add(message.author.id);
+        message.reply('Whose information do you seek Primordian? Bestow me with their name.');
         const embed = new EmbedBuilder()
-            .setTitle('🌒 Morvath ⚚')
-            .setDescription('***Biography*** : Morvath the Hollow was once the ruler of Duskmoor, a being of immense power driven by an insatiable hunger to stand above all creation. He is now nothing but a whisper in the ruins — a ghostly curse called the Withered Echo, broken by the very ambition that defined him.')
+            .setTitle(' 📋***Information Board***💡 ')
+            .setDescription('Look at detailed biographies of characters, break downs of story events and more!\n')
             .addFields(
-                { name: 'Title', value: 'The Hollow' },
-                { name: 'Realm', value: 'Duskmoor' },
-                { name: 'Race', value: 'Soul-less Gloamhusk' },
-                { name: 'Status', value: 'Cursed / Destroyed' },
-                { name: 'Current Form', value: 'The Withered Echo' },
-            )
-            .setColor('#000000')
-            .setThumbnail('https://c.tenor.com/YVvY50bJM_sAAAAd/tenor.gif')
-            .setFooter({ text: 'Cause of Fall: Great One / Lagota Shatter' });
-
-        message.channel.send({ embeds: [embed] });
-    }
-    else if(message.content.toLowerCase() === 'great one' || message.content.toLowerCase() === 'the great one'){
-        const embed = new EmbedBuilder()
-            .setTitle('👼 The Great One 🕊️')
-            .setDescription('***Biography*** : The Great One was shaped from nothing, a being that existed before creation itself and set all realms into motion. He does not rule loudly — his presence alone is law, and to stand against him is to invite your own unmaking.')
-            .addFields(
-                { name: 'Title', value: 'The Formless' },
-                { name: 'Realm', value: 'Above All' },
-                { name: 'Race', value: 'None' },
-                { name: 'Status', value: 'Eternal' },
-                { name: 'Current Form', value: 'Beyond Classification' },
+                { name: 'Characters\n', value: `The Great One\nKeen Keeper\nGremlin Seer\nMorvath\nNyxar\nSeraphine\nSolmara` },
+                { name: 'Events\n', value: `The Great Expulsion` }
             )
             .setColor('#FFFFFF')
-            .setThumbnail('https://cdn.dribbble.com/userupload/23869078/file/original-f85b1fb5a62385e81ada5db12d23c8a0.gif')
-            .setFooter({ text: 'He who can never be slain?'});
+            .setTimestamp();
 
         message.channel.send({ embeds: [embed] });
+        return;
     }
-    else if(message.content.toLowerCase() === 'seraphine'){
-        const embed = new EmbedBuilder()
-            .setTitle('✨👼 Seraphine 𝄞🗡')
-            .setDescription('***Biography*** : Seraphine was once the divine ruler of Astravale, a being of celestial authority whose power was second only to the Great One himself. The Great Expulsion stripped her of her godhood and cast her into a mortal body — she still carries her power, but now she bleeds, ages, and feels the weight of existence like never before.')
-            .addFields(
-                { name: 'Title', value: 'The Tarnished Halo' },
-                { name: 'Realm', value: 'Astravale' },
-                { name: 'Race', value: 'Spright' },
-                { name: 'Status', value: 'Displaced/Stripped' },
-                { name: 'Current Form', value: 'Mortal' },
-                { name : 'Known Associates', value : 'Nyxar & Solmara'},
-            )
-            .setColor('#fff7b3')
-            .setThumbnail('https://i.makeagif.com/media/8-15-2016/q5Vsy0.gif')
-            .setFooter({ text: 'The one who once held Astravale, now holds her breath.'});
 
-        message.channel.send({ embeds: [embed] });
-    }
-    else if(message.content.toLowerCase() === 'nyxar'){
-        const embed = new EmbedBuilder()
-            .setTitle('🦇 Nyxar 🕷️')
-            .setDescription('***Biography*** : Nyxar the Veiled was the enigmatic ruler of Umbrafall, a being shrouded in shadow whose presence inspired as much dread as reverence. The Great Expulsion tore his divinity from him and buried him in a mortal shell — he endures, but the veil that once made him untouchable grows thinner every day.')
-            .addFields(
-                { name: 'Title', value: 'The Veiled' },
-                { name: 'Realm', value: 'Umbrafall' },
-                { name: 'Race', value: 'Spright' },
-                { name: 'Status', value: 'Displaced/Stripped' },
-                { name: 'Current Form', value: 'Mortal' },
-                { name : 'Known Associates', value : 'Seraphine & Solmara'},
-            )
-            .setColor('#292929')
-            .setThumbnail('https://64.media.tumblr.com/ca430bfaa1c614b28ab651977b3b0c33/tumblr_mhs11080JP1rgpdifo1_400.gifv')
-            .setFooter({ text: 'The one who was unseen is now seen by all.'});
+    if (awaitingName.has(message.author.id)) {
+        awaitingName.delete(message.author.id);
+        if (message.content.toLowerCase() === 'morvath') {
+            const embed = new EmbedBuilder()
+                .setTitle('🌒 Morvath ⚚')
+                .setDescription('***Biography*** : Morvath the Hollow was once the ruler of Duskmoor, a being of immense power driven by an insatiable hunger to stand above all creation. He is now nothing but a whisper in the ruins — a ghostly curse called the Withered Echo, broken by the very ambition that defined him.')
+                .addFields(
+                    { name: 'Title', value: 'The Hollow' },
+                    { name: 'Realm', value: 'Duskmoor' },
+                    { name: 'Race', value: 'Soul-less Gloamhusk' },
+                    { name: 'Status', value: 'Cursed / Destroyed' },
+                    { name: 'Current Form', value: 'The Withered Echo' },
+                )
+                .setColor('#000000')
+                .setThumbnail('https://c.tenor.com/YVvY50bJM_sAAAAd/tenor.gif')
+                .setFooter({ text: 'Cause of Fall: Great One / Lagota Shatter' });
 
-        message.channel.send({ embeds: [embed] });
-    }
-    else if(message.content.toLowerCase() === 'solmara'){
-        const embed = new EmbedBuilder()
-            .setTitle('🤍 Solmara 🔥')
-            .setDescription('**Biography*** : Solmara the Pale Flame was the radiant ruler of Dawnmoor, a being of quiet but consuming power whose light marked the boundary between creation and the void. The Great Expulsion dimmed her flame and forced her into mortal flesh — she still burns, but now that fire has an end.')
-            .addFields(
-                { name: 'Title', value: 'The Pale Flame' },
-                { name: 'Realm', value: 'Dawnmoor/Unknown' },
-                { name: 'Race', value: 'Soul-less' },
-                { name: 'Status', value: 'Displaced/Stripped' },
-                { name: 'Current Form', value: 'Mortal' },
-                { name : 'Known Associates', value : 'Seraphine & Nyxar'},
-            )
-            .setColor('#ffffff')
-            .setThumbnail('https://media.discordapp.net/attachments/1376542084529655808/1489986814755340298/solmara.gif?ex=69d269db&is=69d1185b&hm=eeda6c541670e6081863b1e8a699f2b24f140b602d680d4f19bb1bac1a37e977&=&width=263&height=368')
-            .setFooter({ text: 'The brightening light now flickers..'});
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'great one' || message.content.toLowerCase() === 'the great one') {
+            const embed = new EmbedBuilder()
+                .setTitle('👼 The Great One 🕊️')
+                .setDescription('***Biography*** : The Great One was shaped from nothing, a being that existed before creation itself and set all realms into motion. He does not rule loudly — his presence alone is law, and to stand against him is to invite your own unmaking.')
+                .addFields(
+                    { name: 'Title', value: 'The Formless' },
+                    { name: 'Realm', value: 'Above All' },
+                    { name: 'Race', value: 'None' },
+                    { name: 'Status', value: 'Eternal' },
+                    { name: 'Current Form', value: 'Beyond Classification' },
+                )
+                .setColor('#FFFFFF')
+                .setThumbnail('https://cdn.dribbble.com/userupload/23869078/file/original-f85b1fb5a62385e81ada5db12d23c8a0.gif')
+                .setFooter({ text: 'He who can never be slain?' });
 
-        message.channel.send({ embeds: [embed] });
-    }
-    else if(message.content.toLowerCase() === 'keen keeper'){
-        const embed = new EmbedBuilder()
-            .setTitle('📝 Keen Keeper ✍🏻')
-            .setDescription('**Biography*** : The Keen Keeper is the Soul-less Archivist born of the Great One himself, a being untouched by emotion or bias whose sole purpose is to record the deeds of all who exist. She carries the Star-Etcher, a pen carved from a dying star, and nothing that has ever happened escapes her record.')
-            .addFields(
-                { name: 'Title', value: 'Soul-less Archivist' },
-                { name: 'Realm', value: 'Above All' },
-                { name: 'Race', value: 'Soul-less' },
-                { name: 'Status', value: 'Active' },
-                { name: 'Current Form', value: 'Primordial' },
-                { name : 'Known Associates', value : 'The Great One & Gremlin Seer'},
-            )
-            .setColor('#ff9a03')
-            .setThumbnail('https://w.wallhaven.cc/full/g8/wallhaven-g8xjzd.jpg')
-            .setFooter({ text: 'She has written your name, She has written your end..'});
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'seraphine') {
+            const embed = new EmbedBuilder()
+                .setTitle('✨👼 Seraphine 𝄞🗡')
+                .setDescription('***Biography*** : Seraphine was once the divine ruler of Astravale, a being of celestial authority whose power was second only to the Great One himself. The Great Expulsion stripped her of her godhood and cast her into a mortal body — she still carries her power, but now she bleeds, ages, and feels the weight of existence like never before.')
+                .addFields(
+                    { name: 'Title', value: 'The Tarnished Halo' },
+                    { name: 'Realm', value: 'Astravale' },
+                    { name: 'Race', value: 'Spright' },
+                    { name: 'Status', value: 'Displaced/Stripped' },
+                    { name: 'Current Form', value: 'Mortal' },
+                    { name: 'Known Associates', value: 'Nyxar & Solmara' },
+                )
+                .setColor('#fff7b3')
+                .setThumbnail('https://i.makeagif.com/media/8-15-2016/q5Vsy0.gif')
+                .setFooter({ text: 'The one who once held Astravale, now holds her breath.' });
 
-        message.channel.send({ embeds: [embed] });
-    }
-    else if(message.content.toLowerCase() === 'gremlin seer'){
-        const embed = new EmbedBuilder()
-            .setTitle('🧿 Gremlin Seer ⚙️')
-            .setDescription('**Biography*** : The Gremlin Seer is the First-Draft Spright, an ancient mechanical watcher whose singular eye scans every ripple across all realms without rest. He holds no power of his own but sees everything — a frantic, tireless alarm that screams into the void when disaster stirs and the powerful refuse to listen.')
-            .addFields(
-                { name: 'Title', value: 'Cosmic Alarm Clock' },
-                { name: 'Realm', value: 'Above All' },
-                { name: 'Race', value: 'Spright' },
-                { name: 'Status', value: 'Active' },
-                { name: 'Current Form', value: 'Primordial' },
-                { name : 'Known Associates', value : 'The Great One & Keen Keeper'},
-            )
-            .setColor('#8e03ff')
-            .setThumbnail('https://i.pinimg.com/originals/bf/27/de/bf27de7c22f370a729c74c91b0791c59.gif')
-            .setFooter({ text: 'He screams into the void, watches it unfold, and can do nothing but scream again.'});
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'nyxar') {
+            const embed = new EmbedBuilder()
+                .setTitle('🦇 Nyxar 🕷️')
+                .setDescription('***Biography*** : Nyxar the Veiled was the enigmatic ruler of Umbrafall, a being shrouded in shadow whose presence inspired as much dread as reverence. The Great Expulsion tore his divinity from him and buried him in a mortal shell — he endures, but the veil that once made him untouchable grows thinner every day.')
+                .addFields(
+                    { name: 'Title', value: 'The Veiled' },
+                    { name: 'Realm', value: 'Umbrafall' },
+                    { name: 'Race', value: 'Spright' },
+                    { name: 'Status', value: 'Displaced/Stripped' },
+                    { name: 'Current Form', value: 'Mortal' },
+                    { name: 'Known Associates', value: 'Seraphine & Solmara' },
+                )
+                .setColor('#292929')
+                .setThumbnail('https://64.media.tumblr.com/ca430bfaa1c614b28ab651977b3b0c33/tumblr_mhs11080JP1rgpdifo1_400.gifv')
+                .setFooter({ text: 'The one who was unseen is now seen by all.' });
 
-        message.channel.send({ embeds: [embed] });
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'solmara') {
+            const embed = new EmbedBuilder()
+                .setTitle('🤍 Solmara 🔥')
+                .setDescription('**Biography*** : Solmara the Pale Flame was the radiant ruler of Dawnmoor, a being of quiet but consuming power whose light marked the boundary between creation and the void. The Great Expulsion dimmed her flame and forced her into mortal flesh — she still burns, but now that fire has an end.')
+                .addFields(
+                    { name: 'Title', value: 'The Pale Flame' },
+                    { name: 'Realm', value: 'Dawnmoor/Unknown' },
+                    { name: 'Race', value: 'Soul-less' },
+                    { name: 'Status', value: 'Displaced/Stripped' },
+                    { name: 'Current Form', value: 'Mortal' },
+                    { name: 'Known Associates', value: 'Seraphine & Nyxar' },
+                )
+                .setColor('#ffffff')
+                .setThumbnail('https://media.discordapp.net/attachments/1376542084529655808/1489986814755340298/solmara.gif?ex=69d269db&is=69d1185b&hm=eeda6c541670e6081863b1e8a699f2b24f140b602d680d4f19bb1bac1a37e977&=&width=263&height=368')
+                .setFooter({ text: 'The brightening light now flickers..' });
+
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'keen keeper') {
+            const embed = new EmbedBuilder()
+                .setTitle('📝 Keen Keeper ✍🏻')
+                .setDescription('**Biography*** : The Keen Keeper is the Soul-less Archivist born of the Great One himself, a being untouched by emotion or bias whose sole purpose is to record the deeds of all who exist. She carries the Star-Etcher, a pen carved from a dying star, and nothing that has ever happened escapes her record.')
+                .addFields(
+                    { name: 'Title', value: 'Soul-less Archivist' },
+                    { name: 'Realm', value: 'Above All' },
+                    { name: 'Race', value: 'Soul-less' },
+                    { name: 'Status', value: 'Active' },
+                    { name: 'Current Form', value: 'Primordial' },
+                    { name: 'Known Associates', value: 'The Great One & Gremlin Seer' },
+                )
+                .setColor('#ff9a03')
+                .setThumbnail('https://w.wallhaven.cc/full/g8/wallhaven-g8xjzd.jpg')
+                .setFooter({ text: 'She has written your name, She has written your end..' });
+
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'gremlin seer') {
+            const embed = new EmbedBuilder()
+                .setTitle('🧿 Gremlin Seer ⚙️')
+                .setDescription('**Biography*** : The Gremlin Seer is the First-Draft Spright, an ancient mechanical watcher whose singular eye scans every ripple across all realms without rest. He holds no power of his own but sees everything — a frantic, tireless alarm that screams into the void when disaster stirs and the powerful refuse to listen.')
+                .addFields(
+                    { name: 'Title', value: 'Cosmic Alarm Clock' },
+                    { name: 'Realm', value: 'Above All' },
+                    { name: 'Race', value: 'Spright' },
+                    { name: 'Status', value: 'Active' },
+                    { name: 'Current Form', value: 'Primordial' },
+                    { name: 'Known Associates', value: 'The Great One & Keen Keeper' },
+                )
+                .setColor('#8e03ff')
+                .setThumbnail('https://i.pinimg.com/originals/bf/27/de/bf27de7c22f370a729c74c91b0791c59.gif')
+                .setFooter({ text: 'He screams into the void, watches it unfold, and can do nothing but scream again.' });
+
+            message.channel.send({ embeds: [embed] });
+        }
+        else if (message.content.toLowerCase() === 'expulsion' || message.content.toLowerCase() === 'great expulsion' || message.content.toLowerCase() === 'the great expulsion') {
+            const embed = new EmbedBuilder()
+                .setTitle('˗ˏˋThe Great ✸ Expulsionˎˊ˗')
+                .setDescription(`The Great Expulsion was not a war, not a battle — it was a consequence. When the Great One drove Morvath back to Duskmoor and the Lagota finally shattered under the weight of every soul it had ever stolen, the explosion did not just destroy a world. It rippled. It tore through the boundaries between realms like a crack through glass, and three kingdoms that had nothing to do with Morvath's ambition paid the price for it. The gods who ruled those lands — Seraphine, Nyxar, and Solmara — felt their divinity ripped from them in an instant, not as punishment, but as collateral. The Great One did not cause the Expulsion. Morvath did. And the universe is still recovering from it.`)
+                .addFields(
+                    { name: 'Event', value: 'The Great Expulsion' },
+                    { name: 'Trigger', value: 'Morvath the Hollow' },
+                    { name: 'Status', value: 'Ongoing' },
+                    { name: 'Impact', value: 'Cosmic Level' },
+                    { name: 'Casualties', value: 'Unknown - Entire populations unaccounted for.' },
+                    { name: 'Started', value: 'GE 1' },
+                    { name: 'Ended', value: '---' },
+                )
+                .setColor('#290000');
+
+            message.channel.send({ embeds: [embed] });
+        }
+        else {
+            message.reply('That name is unknown to the Keen Keeper..');
+        }
     }
-    else if(message.content.toLowerCase() === 'expulsion' || message.content.toLowerCase() === 'great expulsion' || message.content.toLowerCase() === 'the great expulsion'){
-        const embed = new EmbedBuilder()
-        .setTitle('˗ˏˋThe Great ✸ Expulsionˎˊ˗')
-        .setDescription(`
-            The Great Expulsion was not a war, not a battle — it was a consequence. When the Great One drove Morvath back to Duskmoor and the Lagota finally shattered under the weight of every soul it had ever stolen, the explosion did not just destroy a world. It rippled. It tore through the boundaries between realms like a crack through glass, and three kingdoms that had nothing to do with Morvath's ambition paid the price for it. The gods who ruled those lands — Seraphine, Nyxar, and Solmara — felt their divinity ripped from them in an instant, not as punishment, but as collateral. The Great One did not cause the Expulsion. Morvath did. And the universe is still recovering from it.`)
-        .addFields(
-    { name: 'Event', value: 'The Great Expulsion' },
-    { name: 'Trigger', value: 'Morvath the Hollow' },
-    { name: 'Status', value: 'Ongoing' },
-    { name: 'Impact', value: 'Cosmic Level' },
-    { name: 'Casualties', value: 'Unknown - Entire populations unaccounted for.' },
-    { name: 'Started', value: 'GE 1' },
-    { name: 'Ended', value: '---' },
-        )
-        .setColor('#290000')
-        
-        message.channel.send({ embeds : [embed]});
-    }
-    else {
-        message.reply('That name is unknown to the Keen Keeper..')
-    }
-}
 });
 
 client.login(process.env.TOKEN);

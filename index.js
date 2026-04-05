@@ -39,6 +39,7 @@ const userExp = {};
 const userDesc = {};
 const userColor = {};
 const userQuestHistory = {};
+const userWrongAttempts = {};
 const awaitingName = new Set();
 const awaitingDesc = new Set();
 const awaitingColor = new Set();
@@ -224,6 +225,7 @@ client.on('messageCreate', async message => {
 
             if (quest) {
                 quest.completed = true;
+                userWrongAttempts[message.author.id] = 0;
                 if (!userExp[message.author.id]) userExp[message.author.id] = 0;
                 userExp[message.author.id] += quest.reward;
                 if (!userQuestHistory[message.author.id]) userQuestHistory[message.author.id] = 0;
@@ -235,11 +237,16 @@ client.on('messageCreate', async message => {
                     message.channel.send(`🎉 ${message.author.username} has completed all daily quests!`);
                 }
             }
-            if(!quest){
-                message.reply('Wrong answer, your EXP was decreased by 5.');
-                if(userExp[message.author.id] != 0){
-                userExp[message.author.id] -= 10;}
+            else {
+                if (!userWrongAttempts[message.author.id]) userWrongAttempts[message.author.id] = 0;
+    userWrongAttempts[message.author.id] += 1;
+
+    if (userWrongAttempts[message.author.id] <= 3) {
+        userExp[message.author.id] -= 10;
+        message.reply(`❌ Wrong! You lost **5 XP**.`);
+    }
             }
+            
         }
     }
 
